@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Calendar, MapPin, Clock } from 'lucide-react';
+import InscricaoModal from './components/InscricaoModal';
 
 export default function App() {
+  const [modalOpen, setModalOpen] = useState(false);
   const [timeLeft, setTimeLeft] = useState({
     days: 0,
     hours: 0,
@@ -53,7 +55,10 @@ export default function App() {
           <a href="#sobre" className="hover:text-amber-500 transition-colors">Sobre</a>
           <a href="#programacao" className="hover:text-amber-500 transition-colors">Programação</a>
         </nav>
-        <button className="px-6 py-2 border border-white/30 rounded-full text-xs font-bold uppercase tracking-widest hover:bg-white hover:text-black transition-all duration-300">
+        <button
+          onClick={() => setModalOpen(true)}
+          className="px-6 py-2 border border-white/30 rounded-full text-xs font-bold uppercase tracking-widest hover:bg-white hover:text-black transition-all duration-300"
+        >
           Inscrições
         </button>
       </header>
@@ -99,8 +104,11 @@ export default function App() {
               Dia <span className="font-bold text-white">16 de Maio</span> de 2026 às 19h
             </p>
 
-            <button className="px-10 py-4 bg-white text-black font-bold rounded-full uppercase tracking-widest hover:bg-amber-500 hover:text-white transition-all duration-300 shadow-2xl shadow-black/50">
-              Inscrições em Breve
+            <button
+              onClick={() => setModalOpen(true)}
+              className="px-10 py-4 bg-white text-black font-bold rounded-full uppercase tracking-widest hover:bg-amber-500 hover:text-white transition-all duration-300 shadow-2xl shadow-black/50"
+            >
+              Inscreva-se
             </button>
           </motion.div>
         </div>
@@ -191,6 +199,9 @@ export default function App() {
       <footer className="py-12 px-6 border-t border-white/5 text-center text-gray-500 text-xs uppercase tracking-[0.2em]">
         <p>&copy; 2026 4º Encontrão. Todos os direitos reservados.</p>
       </footer>
+
+      {/* Modal de Inscrição + Pagamento */}
+      <InscricaoModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
     </div>
   );
 }
