@@ -161,7 +161,7 @@ export default function App() {
               </div>
               <h3 className="text-xl font-bold mb-2 uppercase tracking-wide">Localização</h3>
               <p className="text-gray-400 text-sm leading-relaxed">
-                Santuário Central. Rua da Esperança, 123 - Centro.
+                R. Batuquira, 100 - Vila Bernardes, Arapongas - PR, 86705-030.
               </p>
             </div>
 
