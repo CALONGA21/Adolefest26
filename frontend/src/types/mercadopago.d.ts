@@ -1,5 +1,6 @@
 declare global {
   interface Window {
+    mpInstance?: boolean;
     MercadoPago: new (publicKey: string, options?: { locale?: string }) => {
       bricks: () => {
         create: (

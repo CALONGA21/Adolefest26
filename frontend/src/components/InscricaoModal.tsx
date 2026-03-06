@@ -1,8 +1,66 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
+import { initMercadoPago, Payment } from '@mercadopago/sdk-react';
 
-const VALOR_INSCRICAO = 30;
+if (typeof window !== 'undefined' && !window.mpInstance) {
+  try {
+    initMercadoPago(import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY, { locale: 'pt-BR' });
+  } catch {
+    // SDK já inicializado (HMR / StrictMode) — seguro ignorar
+  }
+  window.mpInstance = true;
+}
+
+/* ---------- Componente isolado para o Payment Brick ---------- */
+interface MercadoPagoSectionProps {
+  preferenceId: string;
+  onReady: () => void;
+  onError: (error: unknown) => void;
+}
+
+const MercadoPagoSection = React.memo(function MercadoPagoSection({
+  preferenceId,
+  onReady,
+  onError,
+}: MercadoPagoSectionProps) {
+  const initialization = useMemo(() => ({ preferenceId }), [preferenceId]);
+
+  const customization = useMemo(
+    () => ({
+      visual: {
+        style: {
+          theme: 'dark' as const,
+          customVariables: {
+            formBackgroundColor: '#1a1a1a',
+            baseColor: '#d97706',
+          },
+        },
+      },
+      paymentMethods: {
+        creditCard: 'all' as const,
+        debitCard: 'all' as const,
+        ticket: 'none' as const,
+        bankTransfer: 'none' as const,
+        mercadoPago: 'all' as const,
+      },
+    }),
+    [],
+  );
+
+  const handleSubmit = useCallback(async () => ({}), []);
+
+  return (
+    <Payment
+      initialization={initialization as never}
+      customization={customization}
+      onSubmit={handleSubmit}
+      onReady={onReady}
+      onError={onError}
+    />
+  );
+});
+/* ------------------------------------------------------------ */
 
 interface Props {
   isOpen: boolean;
@@ -37,22 +95,43 @@ function validarCpf(cpf: string): boolean {
   return true;
 }
 
+function validarEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+type ProcessPaymentResponse = {
+  preference_id?: string;
+  error?: string;
+};
+
 export default function InscricaoModal({ isOpen, onClose }: Props) {
   const [step, setStep] = useState<'form' | 'payment' | 'success'>('form');
   const [nome, setNome] = useState('');
   const [cpf, setCpf] = useState('');
-  const [errors, setErrors] = useState<{ nome?: string; cpf?: string }>({});
+  const [email, setEmail] = useState('');
+  const [errors, setErrors] = useState<{ nome?: string; cpf?: string; email?: string }>({});
+  const [preferenceId, setPreferenceId] = useState<string | null>(null);
+  const [isCreatingPreference, setIsCreatingPreference] = useState(false);
   const [loading, setLoading] = useState(false);
-  const brickControllerRef = useRef<{ unmount: () => void } | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+
+  const handleBrickReady = useCallback(() => setLoading(false), []);
+  const handleBrickError = useCallback((error: unknown) => {
+    console.error('=== ERRO INTERNO DO BRICK ===', error);
+    setPaymentError('Erro no checkout. Verifique os dados e tente novamente.');
+    setLoading(false);
+  }, []);
 
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setCpf(formatCpf(e.target.value));
   };
 
-  const handleSubmitForm = (e: React.FormEvent) => {
+  const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newErrors: { nome?: string; cpf?: string } = {};
+    const newErrors: { nome?: string; cpf?: string; email?: string } = {};
     const trimmedName = nome.trim();
+    const trimmedEmail = email.trim();
+    const cpfDigits = cpf.replace(/\D/g, '');
 
     if (!trimmedName || trimmedName.split(/\s+/).length < 2) {
       newErrors.nome = 'Informe nome e sobrenome';
@@ -60,115 +139,82 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
     if (!validarCpf(cpf)) {
       newErrors.cpf = 'CPF inválido';
     }
+    if (!validarEmail(trimmedEmail)) {
+      newErrors.email = 'Email inválido';
+    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
     }
 
-    setErrors({});
-    setStep('payment');
-  };
+    try {
+      setErrors({});
+      setPaymentError(null);
+      setIsCreatingPreference(true);
 
-  // Initialize Payment Brick
-  useEffect(() => {
-    if (step !== 'payment') return;
+      const response = await fetch('/api/process_payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nome: trimmedName,
+          cpf: cpfDigits,
+          email: trimmedEmail,
+          id_evento: 1,
+        }),
+      });
 
-    const initBrick = async () => {
-      const publicKey = process.env.MERCADO_PAGO_PUBLIC_KEY;
-      if (!publicKey || !window.MercadoPago) {
-        console.error('Mercado Pago SDK ou public key não configurada');
-        setLoading(false);
+      const data = (await response.json().catch(() => null)) as ProcessPaymentResponse | null;
+
+      if (!response.ok) {
+        if (response.status === 400) {
+          setPaymentError(data?.error || 'Ingressos esgotados.');
+          return;
+        }
+
+        setPaymentError(data?.error || 'Nao foi possivel iniciar o pagamento.');
         return;
       }
 
-      try {
-        const mp = new window.MercadoPago(publicKey, { locale: 'pt-BR' });
-        const bricksBuilder = mp.bricks();
-
-        const nameParts = nome.trim().split(/\s+/);
-        const firstName = nameParts[0];
-        const lastName = nameParts.slice(1).join(' ');
-        const cpfDigits = cpf.replace(/\D/g, '');
-
-        brickControllerRef.current = await bricksBuilder.create('payment', 'paymentBrick_container', {
-          initialization: {
-            amount: VALOR_INSCRICAO,
-            payer: {
-              firstName,
-              lastName,
-              identification: {
-                type: 'CPF',
-                number: cpfDigits,
-              },
-            },
-          },
-          customization: {
-            visual: {
-              style: {
-                theme: 'dark',
-                customVariables: {
-                  formBackgroundColor: '#1a1a1a',
-                  baseColor: '#d97706',
-                },
-              },
-            },
-            paymentMethods: {
-              creditCard: 'all',
-              debitCard: 'all',
-              ticket: 'all',
-              bankTransfer: 'all',
-              mercadoPago: 'all',
-            },
-          },
-          callbacks: {
-            onReady: () => setLoading(false),
-            onSubmit: async ({ formData }: { formData: Record<string, unknown> }) => {
-              const response = await fetch('/api/process_payment', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  ...formData,
-                  inscricao: { nome: nome.trim(), cpf: cpfDigits },
-                }),
-              });
-
-              if (!response.ok) throw new Error('Falha no pagamento');
-              setStep('success');
-            },
-            onError: (error: unknown) => {
-              console.error('Payment Brick error:', error);
-            },
-          },
-        });
-      } catch (err) {
-        console.error('Erro ao inicializar Payment Brick:', err);
-        setLoading(false);
+      if (!data?.preference_id) {
+        setPaymentError('Checkout indisponivel no momento. Tente novamente.');
+        return;
       }
-    };
 
-    setLoading(true);
-    initBrick();
-
-    return () => {
-      brickControllerRef.current?.unmount();
-      brickControllerRef.current = null;
-    };
-  }, [step, nome, cpf]);
+      setPreferenceId(data.preference_id);
+      setLoading(true);
+      setStep('payment');
+    } catch (error) {
+      console.error('Erro ao criar preferencia de pagamento:', error);
+      setPaymentError('Falha de conexao ao iniciar pagamento.');
+    } finally {
+      setIsCreatingPreference(false);
+    }
+  };
 
   // Reset on close
   useEffect(() => {
     if (!isOpen) {
-      const timer = setTimeout(() => {
-        setStep('form');
-        setNome('');
-        setCpf('');
-        setErrors({});
-        setLoading(false);
-      }, 300);
-      return () => clearTimeout(timer);
+      setStep('form');
+      setNome('');
+      setCpf('');
+      setEmail('');
+      setErrors({});
+      setPaymentError(null);
+      setIsCreatingPreference(false);
+      setLoading(false);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (step !== 'payment' || !loading) return;
+    const timeout = window.setTimeout(() => {
+      setLoading(false);
+      setPaymentError('Checkout demorou para carregar. Tente voltar e abrir novamente.');
+    }, 12000);
+
+    return () => window.clearTimeout(timeout);
+  }, [step, loading]);
 
   const steps = ['form', 'payment', 'success'] as const;
   const currentIndex = steps.indexOf(step);
@@ -198,8 +244,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                 {step === 'payment' && (
                   <button
                     onClick={() => {
-                      brickControllerRef.current?.unmount();
-                      brickControllerRef.current = null;
+                      setPreferenceId(null);
                       setStep('form');
                     }}
                     className="text-gray-400 hover:text-white transition-colors"
@@ -242,9 +287,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
 
                   <div className="text-center py-3 px-4 bg-amber-600/10 rounded-xl border border-amber-600/20">
                     <p className="text-amber-500 text-sm font-medium">Valor da inscrição</p>
-                    <p className="text-2xl font-bold text-white">
-                      R$ {VALOR_INSCRICAO.toFixed(2).replace('.', ',')}
-                    </p>
+                    <p className="text-2xl font-bold text-white">Definido no checkout seguro</p>
                   </div>
 
                   <div>
@@ -279,11 +322,32 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                     )}
                   </div>
 
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="voce@email.com"
+                      className="w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-gray-600 focus:outline-none focus:border-amber-600/50 transition-colors"
+                    />
+                    {errors.email && (
+                      <p className="text-red-400 text-xs mt-1">{errors.email}</p>
+                    )}
+                  </div>
+
+                  {paymentError && (
+                    <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-300">
+                      {paymentError}
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    className="w-full py-3.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl uppercase tracking-widest text-sm transition-colors"
+                    disabled={isCreatingPreference}
+                    className="w-full py-3.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl uppercase tracking-widest text-sm transition-colors"
                   >
-                    Continuar para pagamento
+                    {isCreatingPreference ? 'Iniciando checkout...' : 'Continuar para pagamento'}
                   </button>
                 </form>
               )}
@@ -294,13 +358,26 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                   <p className="text-gray-400 text-sm mb-4">
                     Escolha a forma de pagamento para finalizar sua inscrição.
                   </p>
+                  {paymentError && (
+                    <div className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-300">
+                      {paymentError}
+                    </div>
+                  )}
                   {loading && (
                     <div className="flex flex-col items-center justify-center py-12 gap-3">
                       <Loader2 className="animate-spin text-amber-500" size={32} />
                       <p className="text-gray-500 text-sm">Carregando meios de pagamento...</p>
                     </div>
                   )}
-                  <div id="paymentBrick_container" />
+                  {/* Brick isolado em React.memo — só re-renderiza se preferenceId mudar */}
+                  {typeof preferenceId === 'string' && preferenceId.trim() !== '' && (
+                    <MercadoPagoSection
+                      key={preferenceId}
+                      preferenceId={preferenceId}
+                      onReady={handleBrickReady}
+                      onError={handleBrickError}
+                    />
+                  )}
                 </div>
               )}
 

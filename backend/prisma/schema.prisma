@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  PENDING
+  APPROVED
+  CANCELLED
+}
+
+model User {
+  id    Int    @id @default(autoincrement())
+  name  String
+  // CPF must be globally unique to prevent duplicate registrations for the same person.
+  cpf   String @unique
+  // Keep email unique to avoid duplicated user accounts.
+  email String @unique
+
+  orders Order[]
+
+  @@map("users")
+}
+
+model Event {
+  id Int @id @default(autoincrement())
+
+  // Fixed default inventory per event as requested.
+  total_tickets Int     @default(2000)
+  // Decimal is safer for currency than floating point types.
+  price         Decimal @db.Decimal(10, 2)
+
+  orders Order[]
+
+  @@map("events")
+}
+
+model Order {
+  id Int @id @default(autoincrement())
+
+  status OrderStatus @default(PENDING)
+  // Guarantees safe retries in payment flow without creating duplicate charges/orders.
+  idempotency_key String @unique
+
+  // Required foreign keys: an order must belong to one user and one event.
+  user_id  Int
+  event_id Int
+
+  // Automatic lifecycle timestamps for auditing.
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  user  User  @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  event Event @relation(fields: [event_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([user_id])
+  @@index([event_id])
+  @@map("orders")
+}
