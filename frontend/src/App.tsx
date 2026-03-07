@@ -196,6 +196,15 @@ export default function App() {
 
       {/* Footer */}
       <footer className="py-12 px-6 border-t border-white/5 text-center text-gray-500 text-xs uppercase tracking-[0.2em]">
+        <p className="mb-3">
+          SAC:{' '}
+          <a
+            href="mailto:adolfo@agilizaaivai.com"
+            className="text-amber-400 hover:text-amber-300 transition-colors"
+          >
+            adolfo@agilizaaivai.com
+          </a>
+        </p>
         <p>&copy; 2026 4º Encontrão. Todos os direitos reservados.</p>
       </footer>
 
