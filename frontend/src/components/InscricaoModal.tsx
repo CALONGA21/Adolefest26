@@ -105,7 +105,8 @@ type ProcessPaymentResponse = {
 };
 
 export default function InscricaoModal({ isOpen, onClose }: Props) {
-  const [step, setStep] = useState<'form' | 'payment' | 'success'>('form');
+  const [step, setStep] = useState<'consent' | 'form' | 'payment' | 'success'>('consent');
+  const [consentChecked, setConsentChecked] = useState(false);
   const [nome, setNome] = useState('');
   const [cpf, setCpf] = useState('');
   const [email, setEmail] = useState('');
@@ -195,7 +196,8 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
   // Reset on close
   useEffect(() => {
     if (!isOpen) {
-      setStep('form');
+      setStep('consent');
+      setConsentChecked(false);
       setNome('');
       setCpf('');
       setEmail('');
@@ -216,7 +218,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
     return () => window.clearTimeout(timeout);
   }, [step, loading]);
 
-  const steps = ['form', 'payment', 'success'] as const;
+  const steps = ['consent', 'form', 'payment', 'success'] as const;
   const currentIndex = steps.indexOf(step);
 
   return (
@@ -253,6 +255,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                   </button>
                 )}
                 <h2 className="text-xl font-bold uppercase tracking-wide">
+                  {step === 'consent' && 'Termos e Privacidade'}
                   {step === 'form' && 'Inscrição'}
                   {step === 'payment' && 'Pagamento'}
                   {step === 'success' && 'Confirmado!'}
@@ -277,6 +280,52 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
 
             {/* Content */}
             <div className="p-6">
+              {/* Step 0: Consent */}
+              {step === 'consent' && (
+                <div className="space-y-5">
+                  <p className="text-gray-300 text-sm leading-relaxed">
+                    Antes de preencher seus dados, leia e aceite os termos abaixo para continuar a
+                    inscricao no evento.
+                  </p>
+
+                  <div className="rounded-xl border border-amber-600/25 bg-amber-600/10 p-4 text-sm text-gray-200 space-y-3">
+                    <p>
+                      Os dados (Nome, CPF e E-mail) sao coletados exclusivamente para a emissao do
+                      voucher nominal e identificacao no evento Adolefest 2026.
+                    </p>
+                    <p>
+                      O CPF e obrigatorio para evitar fraudes e garantir que o ingresso seja unico e
+                      intransferivel.
+                    </p>
+                    <p>
+                      O usuario autoriza o tratamento desses dados conforme a LGPD apenas para fins
+                      de gestao deste evento pelo Agiliza Inscricoes.
+                    </p>
+                  </div>
+
+                  <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#121212] p-4 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={consentChecked}
+                      onChange={(e) => setConsentChecked(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 accent-amber-600"
+                    />
+                    <span className="text-sm text-gray-200">
+                      Li e concordo com os Termos de Uso e Politica de Privacidade
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    disabled={!consentChecked}
+                    onClick={() => setStep('form')}
+                    className="w-full py-3.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl uppercase tracking-widest text-sm transition-colors"
+                  >
+                    Prosseguir com inscricao
+                  </button>
+                </div>
+              )}
+
               {/* Step 1: Form */}
               {step === 'form' && (
                 <form onSubmit={handleSubmitForm} className="space-y-5">
