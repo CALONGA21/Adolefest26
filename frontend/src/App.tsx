@@ -68,10 +68,9 @@ export default function App() {
         {/* Background Image with Overlay */}
         <div className="absolute inset-0 z-0">
           <img 
-            src="https://images.unsplash.com/photo-1518101645466-7795885ff8f8?q=80&w=2000&auto=format&fit=crop" 
+            src="/images/bg-adolefest-2026.jpg" 
             alt="Background" 
             className="w-full h-full object-cover grayscale-[0.2] brightness-[0.4]"
-            referrerPolicy="no-referrer"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#1a1a1a] via-transparent to-black/40"></div>
         </div>
