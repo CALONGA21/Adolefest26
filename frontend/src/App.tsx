@@ -50,11 +50,6 @@ export default function App() {
             />
           </div>
         </div>
-        <nav className="hidden md:flex gap-8 text-sm font-medium uppercase tracking-widest">
-          <a href="#" className="hover:text-amber-500 transition-colors">Início</a>
-          <a href="#sobre" className="hover:text-amber-500 transition-colors">Sobre</a>
-          <a href="#programacao" className="hover:text-amber-500 transition-colors">Programação</a>
-        </nav>
         <button
           onClick={() => setModalOpen(true)}
           className="px-6 py-2 border border-white/30 rounded-full text-xs font-bold uppercase tracking-widest hover:bg-white hover:text-black transition-all duration-300"
