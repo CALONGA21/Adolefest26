@@ -175,22 +175,6 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mt-20 p-12 bg-gradient-to-br from-amber-600 to-amber-800 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-8">
-            <div className="text-center md:text-left">
-              <h3 className="text-3xl font-black uppercase tracking-tight mb-2">Fique por dentro</h3>
-              <p className="text-white/80">Receba todas as atualizações do evento diretamente no seu e-mail.</p>
-            </div>
-            <div className="flex w-full md:w-auto gap-2">
-              <input 
-                type="email" 
-                placeholder="Seu melhor e-mail" 
-                className="bg-white/10 border border-white/20 rounded-full px-6 py-3 flex-1 md:w-80 focus:outline-none focus:bg-white/20 transition-all placeholder:text-white/50"
-              />
-              <button className="bg-white text-amber-700 font-bold px-8 py-3 rounded-full hover:bg-black hover:text-white transition-all">
-                Enviar
-              </button>
-            </div>
-          </div>
         </div>
       </section>
 
