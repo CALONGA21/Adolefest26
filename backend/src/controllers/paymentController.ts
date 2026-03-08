@@ -42,6 +42,7 @@ type CheckoutPayload = z.infer<typeof checkoutPayloadSchema>;
 
 class SoldOutError extends Error {}
 class EventNotFoundError extends Error {}
+class UserIdentityConflictError extends Error {}
 
 export const createProcessPaymentController = (accessToken: string) => {
   const mpClient = new MercadoPagoConfig({ accessToken });
@@ -62,7 +63,7 @@ export const createProcessPaymentController = (accessToken: string) => {
     }
 
     const payload: CheckoutPayload = parsed.data;
-    const { email } = payload;
+    const normalizedEmail = payload.email.trim().toLowerCase();
     const normalizedCpf = cpfDigits(payload.cpf);
     const idempotencyKey = randomUUID();
 
@@ -98,18 +99,36 @@ export const createProcessPaymentController = (accessToken: string) => {
           throw new SoldOutError('Esgotado');
         }
 
-        const user = await tx.user.upsert({
-          where: { cpf: normalizedCpf },
-          update: {
-            name: payload.nome,
-            email: payload.email,
-          },
-          create: {
-            cpf: normalizedCpf,
-            name: payload.nome,
-            email: payload.email,
-          },
-        });
+        const [userByCpf, userByEmail] = await Promise.all([
+          tx.user.findUnique({ where: { cpf: normalizedCpf } }),
+          tx.user.findUnique({ where: { email: normalizedEmail } }),
+        ]);
+
+        // Prevent merging identities when cpf/email point to different records.
+        if (userByCpf && userByEmail && userByCpf.id !== userByEmail.id) {
+          throw new UserIdentityConflictError('CPF e email pertencem a cadastros diferentes.');
+        }
+
+        let user;
+        if (userByCpf) {
+          user = await tx.user.update({
+            where: { id: userByCpf.id },
+            data: {
+              name: payload.nome,
+              email: normalizedEmail,
+            },
+          });
+        } else if (userByEmail) {
+          throw new UserIdentityConflictError('Este email ja esta vinculado a outro CPF.');
+        } else {
+          user = await tx.user.create({
+            data: {
+              cpf: normalizedCpf,
+              name: payload.nome,
+              email: normalizedEmail,
+            },
+          });
+        }
 
         const order = await tx.order.create({
           data: {
@@ -147,7 +166,7 @@ export const createProcessPaymentController = (accessToken: string) => {
             },
           ],
           payer: {
-            email,
+            email: normalizedEmail,
           },
           external_reference: String(transactionResult.orderId),
           metadata: {
@@ -160,7 +179,7 @@ export const createProcessPaymentController = (accessToken: string) => {
         },
       });
 
-      res.status(200).json({ preference_id: preference.id });
+      res.status(200).json({ preference_id: preference.id, amount: unitPrice });
     } catch (error) {
       if (error instanceof SoldOutError) {
         res.status(400).json({ error: 'Esgotado' });
@@ -169,6 +188,21 @@ export const createProcessPaymentController = (accessToken: string) => {
 
       if (error instanceof EventNotFoundError) {
         res.status(404).json({ error: 'Evento nao encontrado' });
+        return;
+      }
+
+      if (error instanceof UserIdentityConflictError) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+
+      const prismaErrorCode =
+        typeof error === 'object' && error !== null && 'code' in error
+          ? String((error as { code?: unknown }).code ?? '')
+          : '';
+
+      if (prismaErrorCode === 'P2002') {
+        res.status(409).json({ error: 'Conflito de cadastro: CPF ou email ja utilizado.' });
         return;
       }
 

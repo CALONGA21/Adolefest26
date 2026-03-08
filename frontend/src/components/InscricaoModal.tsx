@@ -1,30 +1,30 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
-import { initMercadoPago, Payment } from '@mercadopago/sdk-react';
-
-if (typeof window !== 'undefined' && !window.mpInstance) {
-  try {
-    initMercadoPago(import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY, { locale: 'pt-BR' });
-  } catch {
-    // SDK já inicializado (HMR / StrictMode) — seguro ignorar
-  }
-  window.mpInstance = true;
-}
 
 /* ---------- Componente isolado para o Payment Brick ---------- */
 interface MercadoPagoSectionProps {
   preferenceId: string;
+  amount: number;
   onReady: () => void;
   onError: (error: unknown) => void;
 }
 
 const MercadoPagoSection = React.memo(function MercadoPagoSection({
   preferenceId,
+  amount,
   onReady,
   onError,
 }: MercadoPagoSectionProps) {
-  const initialization = useMemo(() => ({ preferenceId }), [preferenceId]);
+  const containerId = useMemo(
+    () => `mp-payment-brick-${preferenceId.replace(/[^a-zA-Z0-9_-]/g, '')}`,
+    [preferenceId],
+  );
+
+  const initialization = useMemo(
+    () => ({ preferenceId, amount }),
+    [preferenceId, amount],
+  );
 
   const customization = useMemo(
     () => ({
@@ -40,8 +40,6 @@ const MercadoPagoSection = React.memo(function MercadoPagoSection({
       paymentMethods: {
         creditCard: 'all' as const,
         debitCard: 'all' as const,
-        ticket: 'none' as const,
-        bankTransfer: 'none' as const,
         mercadoPago: 'all' as const,
       },
     }),
@@ -50,21 +48,101 @@ const MercadoPagoSection = React.memo(function MercadoPagoSection({
 
   const handleSubmit = useCallback(async () => ({}), []);
 
-  return (
-    <Payment
-      initialization={initialization as never}
-      customization={customization}
-      onSubmit={handleSubmit}
-      onReady={onReady}
-      onError={onError}
-    />
-  );
+  useEffect(() => {
+    let cancelled = false;
+    let controller: { unmount: () => void } | null = null;
+
+    const mountBrick = async () => {
+      try {
+        const publicKey = import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY;
+        if (!publicKey) {
+          throw new Error('VITE_MERCADO_PAGO_PUBLIC_KEY ausente');
+        }
+
+        if (!window.MercadoPago) {
+          console.info('[MP] SDK ainda nao disponivel, aguardando carregamento...');
+          await waitForMercadoPagoSdk(7000);
+        }
+
+        if (!window.MercadoPago) {
+          throw new Error('SDK Mercado Pago nao disponivel em window.MercadoPago');
+        }
+
+        const mp = new window.MercadoPago(publicKey, { locale: 'pt-BR' });
+        const bricksBuilder = mp.bricks();
+
+        const container = document.getElementById(containerId);
+        if (!container) {
+          throw new Error(`Container do Brick nao encontrado: ${containerId}`);
+        }
+
+        container.innerHTML = '';
+        console.info('[MP] create(payment) start', { containerId, preferenceId });
+
+        controller = await bricksBuilder.create('payment', containerId, {
+          initialization,
+          customization,
+          callbacks: {
+            onReady: () => {
+              if (!cancelled) onReady();
+            },
+            onError: (error: unknown) => {
+              if (!cancelled) onError(error);
+            },
+            onSubmit: handleSubmit,
+          },
+        });
+
+        if (cancelled && controller) {
+          controller.unmount();
+        }
+      } catch (error) {
+        if (!cancelled) onError(error);
+      }
+    };
+
+    mountBrick();
+
+    return () => {
+      cancelled = true;
+      if (controller) {
+        console.info('[MP] unmount(payment)', { containerId, preferenceId });
+        controller.unmount();
+      }
+    };
+  }, [containerId, customization, handleSubmit, initialization, onError, onReady, preferenceId]);
+
+  return <div id={containerId} style={{ minHeight: '600px', width: '100%' }} />;
 });
 /* ------------------------------------------------------------ */
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string' && error.trim() !== '') return error;
+  if (typeof error === 'object' && error !== null) {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === 'string' && maybeMessage.trim() !== '') return maybeMessage;
+  }
+  return 'Erro desconhecido ao montar checkout.';
+}
+
+async function waitForMercadoPagoSdk(timeoutMs: number): Promise<void> {
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    if (typeof window !== 'undefined' && window.MercadoPago) {
+      return;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+
+  throw new Error('SDK do Mercado Pago nao ficou disponivel no navegador.');
 }
 
 function formatCpf(value: string): string {
@@ -101,6 +179,7 @@ function validarEmail(email: string): boolean {
 
 type ProcessPaymentResponse = {
   preference_id?: string;
+  amount?: number;
   error?: string;
 };
 
@@ -112,14 +191,23 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
   const [email, setEmail] = useState('');
   const [errors, setErrors] = useState<{ nome?: string; cpf?: string; email?: string }>({});
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
+  const [amount, setAmount] = useState<number>(0);
   const [isCreatingPreference, setIsCreatingPreference] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [brickReady, setBrickReady] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const publicKey = import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY;
 
-  const handleBrickReady = useCallback(() => setLoading(false), []);
+  const handleBrickReady = useCallback(() => {
+    console.info('[MP] Brick ready');
+    setBrickReady(true);
+    setLoading(false);
+  }, []);
   const handleBrickError = useCallback((error: unknown) => {
-    console.error('=== ERRO INTERNO DO BRICK ===', error);
-    setPaymentError('Erro no checkout. Verifique os dados e tente novamente.');
+    const reason = getErrorMessage(error);
+    console.error('[MP] Erro interno do Brick:', error);
+    setBrickReady(false);
+    setPaymentError(`Erro no checkout: ${reason}`);
     setLoading(false);
   }, []);
 
@@ -182,7 +270,10 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
         return;
       }
 
+      console.info('[MP] preference_id recebido:', data.preference_id, 'amount:', data.amount);
       setPreferenceId(data.preference_id);
+      setAmount(data.amount ?? 0);
+      setBrickReady(false);
       setLoading(true);
       setStep('payment');
     } catch (error) {
@@ -204,9 +295,26 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
       setErrors({});
       setPaymentError(null);
       setIsCreatingPreference(false);
+      setBrickReady(false);
       setLoading(false);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (step !== 'payment') return;
+
+    if (!publicKey) {
+      setPaymentError('Chave publica do Mercado Pago ausente no frontend.');
+      setLoading(false);
+      setBrickReady(false);
+      return;
+    }
+
+    console.info('[MP] Tentando montar Brick', {
+      hasPublicKey: Boolean(publicKey),
+      preferenceId,
+    });
+  }, [step, preferenceId, publicKey]);
 
   useEffect(() => {
     if (step !== 'payment' || !loading) return;
@@ -418,11 +526,17 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                       <p className="text-gray-500 text-sm">Carregando meios de pagamento...</p>
                     </div>
                   )}
+                  {!loading && !brickReady && !paymentError && (
+                    <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+                      Inicializando checkout do Mercado Pago...
+                    </div>
+                  )}
                   {/* Brick isolado em React.memo — só re-renderiza se preferenceId mudar */}
                   {typeof preferenceId === 'string' && preferenceId.trim() !== '' && (
                     <MercadoPagoSection
                       key={preferenceId}
                       preferenceId={preferenceId}
+                      amount={amount}
                       onReady={handleBrickReady}
                       onError={handleBrickError}
                     />
