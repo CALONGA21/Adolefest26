@@ -13,6 +13,12 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum PackageType {
+  ingresso
+  camiseta
+  combo
+}
+
 model User {
   id    Int    @id @default(autoincrement())
   name  String
@@ -43,6 +49,7 @@ model Order {
   id Int @id @default(autoincrement())
 
   status OrderStatus @default(PENDING)
+  package_type PackageType @default(ingresso)
   // Guarantees safe retries in payment flow without creating duplicate charges/orders.
   idempotency_key String @unique
 

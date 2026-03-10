@@ -183,12 +183,39 @@ type ProcessPaymentResponse = {
   error?: string;
 };
 
+type Pacote = 'ingresso' | 'camiseta' | 'combo';
+
+const PACOTES_CONFIG: Record<
+  Pacote,
+  { label: string; descricao: string; valor: number }
+> = {
+  ingresso: {
+    label: 'Somente Ingresso',
+    descricao: 'Acesso ao evento Adolefest 2026',
+    valor: 70,
+  },
+  camiseta: {
+    label: 'Somente Camiseta',
+    descricao: 'Camiseta oficial do Adolefest 2026',
+    valor: 45,
+  },
+  combo: {
+    label: 'Ingresso + Camiseta',
+    descricao: 'Ingresso do evento + camiseta oficial',
+    valor: 105,
+  },
+};
+
+const formatCurrency = (value: number): string =>
+  value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
 export default function InscricaoModal({ isOpen, onClose }: Props) {
   const [step, setStep] = useState<'consent' | 'form' | 'payment' | 'success'>('consent');
   const [consentChecked, setConsentChecked] = useState(false);
   const [nome, setNome] = useState('');
   const [cpf, setCpf] = useState('');
   const [email, setEmail] = useState('');
+  const [pacote, setPacote] = useState<Pacote>('ingresso');
   const [errors, setErrors] = useState<{ nome?: string; cpf?: string; email?: string }>({});
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
   const [amount, setAmount] = useState<number>(0);
@@ -250,6 +277,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
           cpf: cpfDigits,
           email: trimmedEmail,
           id_evento: 1,
+          pacote,
         }),
       });
 
@@ -292,6 +320,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
       setNome('');
       setCpf('');
       setEmail('');
+      setPacote('ingresso');
       setErrors({});
       setPaymentError(null);
       setIsCreatingPreference(false);
@@ -442,9 +471,26 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                     <span className="text-white font-semibold">4º Encontrão</span>.
                   </p>
 
-                  <div className="text-center py-3 px-4 bg-amber-600/10 rounded-xl border border-amber-600/20">
-                    <p className="text-amber-500 text-sm font-medium">Valor da inscrição</p>
-                    <p className="text-2xl font-bold text-white">Definido no checkout seguro</p>
+                  <div className="space-y-3 rounded-xl border border-white/10 bg-[#121212] p-4">
+                    <label htmlFor="pacote" className="block text-sm font-medium text-gray-200">
+                      Escolha seu pacote
+                    </label>
+                    <select
+                      id="pacote"
+                      value={pacote}
+                      onChange={(e) => setPacote(e.target.value as Pacote)}
+                      className="w-full bg-[#0f0f0f] border border-white/15 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-600/50 transition-colors"
+                    >
+                      <option value="ingresso">Somente Ingresso</option>
+                      <option value="camiseta">Somente Camiseta</option>
+                      <option value="combo">Ingresso + Camiseta</option>
+                    </select>
+
+                    <div className="rounded-xl border border-amber-600/25 bg-amber-600/10 px-4 py-3">
+                      <p className="text-amber-400 text-xs font-semibold uppercase tracking-wider">Valor Total</p>
+                      <p className="text-2xl font-bold text-white">{formatCurrency(PACOTES_CONFIG[pacote].valor)}</p>
+                      <p className="text-xs text-gray-300 mt-1">{PACOTES_CONFIG[pacote].descricao}</p>
+                    </div>
                   </div>
 
                   <div>

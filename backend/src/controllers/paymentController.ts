@@ -36,9 +36,40 @@ const checkoutPayloadSchema = z.object({
   nome: z.string().trim().min(3, 'Nome deve ter ao menos 3 caracteres'),
   email: z.string().trim().email('Email invalido'),
   id_evento: z.number().int().positive('id_evento deve ser inteiro positivo'),
+  pacote: z.enum(['ingresso', 'camiseta', 'combo']),
 });
 
 type CheckoutPayload = z.infer<typeof checkoutPayloadSchema>;
+type PacoteCompra = CheckoutPayload['pacote'];
+
+const resolvePacote = (
+  pacote: PacoteCompra,
+): { transactionAmount: number; title: string; description: string } => {
+  switch (pacote) {
+    case 'ingresso':
+      return {
+        transactionAmount: 7,
+        title: 'Ingresso - Adolefest',
+        description: 'Somente ingresso do Adolefest',
+      };
+    case 'camiseta':
+      return {
+        transactionAmount: 145,
+        title: 'Camiseta - Adolefest',
+        description: 'Somente camiseta oficial do Adolefest',
+      };
+    case 'combo':
+      return {
+        transactionAmount: 5,
+        title: 'Combo: Ingresso + Camiseta',
+        description: 'Combo com ingresso e camiseta oficial do Adolefest',
+      };
+    default: {
+      const exhaustive: never = pacote;
+      throw new Error(`Pacote nao suportado: ${String(exhaustive)}`);
+    }
+  }
+};
 
 class SoldOutError extends Error {}
 class EventNotFoundError extends Error {}
@@ -65,6 +96,7 @@ export const createProcessPaymentController = (accessToken: string) => {
     const payload: CheckoutPayload = parsed.data;
     const normalizedEmail = payload.email.trim().toLowerCase();
     const normalizedCpf = cpfDigits(payload.cpf);
+    const pacoteConfig = resolvePacote(payload.pacote);
     const idempotencyKey = randomUUID();
 
     try {
@@ -136,6 +168,7 @@ export const createProcessPaymentController = (accessToken: string) => {
             idempotency_key: idempotencyKey,
             user_id: user.id,
             event_id: eventRow.id,
+            package_type: payload.pacote,
           },
         });
 
@@ -148,9 +181,15 @@ export const createProcessPaymentController = (accessToken: string) => {
         };
       });
 
-      const unitPrice = Number(transactionResult.evento.price);
+      const eventPrice = Number(transactionResult.evento.price);
+      if (!Number.isFinite(eventPrice) || eventPrice <= 0) {
+        res.status(500).json({ error: 'Valor base do evento invalido para criar a preferencia.' });
+        return;
+      }
+
+      const unitPrice = pacoteConfig.transactionAmount;
       if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
-        res.status(500).json({ error: 'Valor do ingresso invalido para criar a preferencia.' });
+        res.status(500).json({ error: 'Valor do pacote invalido para criar a preferencia.' });
         return;
       }
 
@@ -159,7 +198,8 @@ export const createProcessPaymentController = (accessToken: string) => {
           items: [
             {
               id: String(transactionResult.evento.id),
-              title: 'Ingresso 4o Encontrao',
+              title: pacoteConfig.title,
+              description: pacoteConfig.description,
               quantity: 1,
               currency_id: 'BRL',
               unit_price: unitPrice,
@@ -172,6 +212,8 @@ export const createProcessPaymentController = (accessToken: string) => {
           metadata: {
             order_id: transactionResult.orderId,
             event_id: transactionResult.evento.id,
+            pacote: payload.pacote,
+            checkout_description: pacoteConfig.description,
           },
         },
         requestOptions: {
