@@ -40,37 +40,8 @@ const checkoutPayloadSchema = z.object({
 });
 
 type CheckoutPayload = z.infer<typeof checkoutPayloadSchema>;
-type PacoteCompra = CheckoutPayload['pacote'];
 
-const resolvePacote = (
-  pacote: PacoteCompra,
-): { transactionAmount: number; title: string; description: string } => {
-  switch (pacote) {
-    case 'ingresso':
-      return {
-        transactionAmount: 7,
-        title: 'Ingresso - Adolefest',
-        description: 'Somente ingresso do Adolefest',
-      };
-    case 'camiseta':
-      return {
-        transactionAmount: 145,
-        title: 'Camiseta - Adolefest',
-        description: 'Somente camiseta oficial do Adolefest',
-      };
-    case 'combo':
-      return {
-        transactionAmount: 5,
-        title: 'Combo: Ingresso + Camiseta',
-        description: 'Combo com ingresso e camiseta oficial do Adolefest',
-      };
-    default: {
-      const exhaustive: never = pacote;
-      throw new Error(`Pacote nao suportado: ${String(exhaustive)}`);
-    }
-  }
-};
-
+class PackageNotFoundError extends Error {}
 class SoldOutError extends Error {}
 class EventNotFoundError extends Error {}
 class UserIdentityConflictError extends Error {}
@@ -96,7 +67,6 @@ export const createProcessPaymentController = (accessToken: string) => {
     const payload: CheckoutPayload = parsed.data;
     const normalizedEmail = payload.email.trim().toLowerCase();
     const normalizedCpf = cpfDigits(payload.cpf);
-    const pacoteConfig = resolvePacote(payload.pacote);
     const idempotencyKey = randomUUID();
 
     try {
@@ -162,6 +132,11 @@ export const createProcessPaymentController = (accessToken: string) => {
           });
         }
 
+        const pacoteInfo = await tx.package.findUnique({ where: { type: payload.pacote } });
+        if (!pacoteInfo) {
+          throw new PackageNotFoundError('Pacote inválido ou não encontrado no banco');
+        }
+
         const order = await tx.order.create({
           data: {
             status: 'PENDING',
@@ -178,16 +153,11 @@ export const createProcessPaymentController = (accessToken: string) => {
             id: eventRow.id,
             price: eventRow.price,
           },
+          pacoteInfo,
         };
       });
 
-      const eventPrice = Number(transactionResult.evento.price);
-      if (!Number.isFinite(eventPrice) || eventPrice <= 0) {
-        res.status(500).json({ error: 'Valor base do evento invalido para criar a preferencia.' });
-        return;
-      }
-
-      const unitPrice = pacoteConfig.transactionAmount;
+      const unitPrice = Number(transactionResult.pacoteInfo.price);
       if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
         res.status(500).json({ error: 'Valor do pacote invalido para criar a preferencia.' });
         return;
@@ -198,8 +168,8 @@ export const createProcessPaymentController = (accessToken: string) => {
           items: [
             {
               id: String(transactionResult.evento.id),
-              title: pacoteConfig.title,
-              description: pacoteConfig.description,
+              title: transactionResult.pacoteInfo.name,
+              description: transactionResult.pacoteInfo.name,
               quantity: 1,
               currency_id: 'BRL',
               unit_price: unitPrice,
@@ -213,7 +183,7 @@ export const createProcessPaymentController = (accessToken: string) => {
             order_id: transactionResult.orderId,
             event_id: transactionResult.evento.id,
             pacote: payload.pacote,
-            checkout_description: pacoteConfig.description,
+            checkout_description: transactionResult.pacoteInfo.name,
           },
         },
         requestOptions: {
@@ -230,6 +200,11 @@ export const createProcessPaymentController = (accessToken: string) => {
 
       if (error instanceof EventNotFoundError) {
         res.status(404).json({ error: 'Evento nao encontrado' });
+        return;
+      }
+
+      if (error instanceof PackageNotFoundError) {
+        res.status(400).json({ error: error.message });
         return;
       }
 

@@ -48,10 +48,10 @@ model Event {
 model Order {
   id Int @id @default(autoincrement())
 
-  status OrderStatus @default(PENDING)
-  package_type PackageType @default(ingresso)
+  status          OrderStatus @default(PENDING)
+  package_type    PackageType @default(ingresso)
   // Guarantees safe retries in payment flow without creating duplicate charges/orders.
-  idempotency_key String @unique
+  idempotency_key String      @unique
 
   // Required foreign keys: an order must belong to one user and one event.
   user_id  Int
@@ -67,4 +67,13 @@ model Order {
   @@index([user_id])
   @@index([event_id])
   @@map("orders")
+}
+
+model Package {
+  id    Int     @id @default(autoincrement())
+  name  String
+  type  String  @unique
+  price Decimal @db.Decimal(10, 2)
+
+  @@map("packages")
 }
