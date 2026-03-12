@@ -35,7 +35,6 @@ const checkoutPayloadSchema = z.object({
   cpf: z.string().trim().refine(isValidCpf, { message: 'CPF invalido' }),
   nome: z.string().trim().min(3, 'Nome deve ter ao menos 3 caracteres'),
   email: z.string().trim().email('Email invalido'),
-  id_evento: z.number().int().positive('id_evento deve ser inteiro positivo'),
   pacote: z.enum(['ingresso', 'camiseta', 'combo']),
 });
 
@@ -70,11 +69,16 @@ export const createProcessPaymentController = (accessToken: string) => {
     const idempotencyKey = randomUUID();
 
     try {
+      const evento = await prisma.event.findFirst();
+      if (!evento) {
+        throw new EventNotFoundError('Evento nao encontrado');
+      }
+
       const transactionResult = await prisma.$transaction(async (tx) => {
         const lockedEventRows = await tx.$queryRaw<Array<{ id: number; total_tickets: number; price: Prisma.Decimal }>>`
           SELECT id, total_tickets, price
           FROM events
-          WHERE id = ${payload.id_evento}
+          WHERE id = ${evento.id}
           FOR UPDATE
         `;
 
@@ -88,7 +92,7 @@ export const createProcessPaymentController = (accessToken: string) => {
           WITH locked_orders AS (
             SELECT id
             FROM orders
-            WHERE event_id = ${payload.id_evento}
+            WHERE event_id = ${evento.id}
               AND status IN ('APPROVED', 'PENDING')
             FOR UPDATE
           )
@@ -142,7 +146,7 @@ export const createProcessPaymentController = (accessToken: string) => {
             status: 'PENDING',
             idempotency_key: idempotencyKey,
             user_id: user.id,
-            event_id: eventRow.id,
+            event_id: evento.id,
             package_type: payload.pacote,
           },
         });

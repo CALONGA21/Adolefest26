@@ -2,6 +2,9 @@ import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 
+const apiBaseUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim().replace(/\/$/, '') ?? '';
+const apiUrl = (path: string): string => (apiBaseUrl ? `${apiBaseUrl}${path}` : path);
+
 /* ---------- Componente isolado para o Payment Brick ---------- */
 interface MercadoPagoSectionProps {
   preferenceId: string;
@@ -52,7 +55,7 @@ const MercadoPagoSection = React.memo(function MercadoPagoSection({
 
   const handleSubmit = useCallback(
     async ({ formData }: { selectedPaymentMethod: string; formData: Record<string, unknown> }) => {
-      const response = await fetch('/api/confirm_payment', {
+      const response = await fetch(apiUrl('/api/confirm_payment'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ formData, order_id: orderId }),
@@ -275,7 +278,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
         setIsLoadingPackages(true);
         setPackagesError(null);
 
-        const response = await fetch('/api/packages');
+        const response = await fetch(apiUrl('/api/packages'));
         const rawData = (await response.json().catch(() => null)) as PackageApiItem[] | null;
 
         if (!response.ok || !Array.isArray(rawData)) {
@@ -357,14 +360,13 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
       setPaymentError(null);
       setIsCreatingPreference(true);
 
-      const response = await fetch('/api/process_payment', {
+      const response = await fetch(apiUrl('/api/process_payment'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nome: trimmedName,
           cpf: cpfDigits,
           email: trimmedEmail,
-          id_evento: 1,
           pacote: selectedPackage.type,
         }),
       });
