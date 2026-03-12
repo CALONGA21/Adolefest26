@@ -6,15 +6,19 @@ import { X, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 interface MercadoPagoSectionProps {
   preferenceId: string;
   amount: number;
+  orderId: number;
   onReady: () => void;
   onError: (error: unknown) => void;
+  onSuccess: () => void;
 }
 
 const MercadoPagoSection = React.memo(function MercadoPagoSection({
   preferenceId,
   amount,
+  orderId,
   onReady,
   onError,
+  onSuccess,
 }: MercadoPagoSectionProps) {
   const containerId = useMemo(
     () => `mp-payment-brick-${preferenceId.replace(/[^a-zA-Z0-9_-]/g, '')}`,
@@ -46,7 +50,29 @@ const MercadoPagoSection = React.memo(function MercadoPagoSection({
     [],
   );
 
-  const handleSubmit = useCallback(async () => ({}), []);
+  const handleSubmit = useCallback(
+    async ({ formData }: { selectedPaymentMethod: string; formData: Record<string, unknown> }) => {
+      const response = await fetch('/api/confirm_payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formData, order_id: orderId }),
+      });
+
+      const data = (await response.json().catch(() => null)) as { status?: string; error?: string } | null;
+
+      if (!response.ok) {
+        throw new Error(data?.error ?? 'Falha ao processar pagamento');
+      }
+
+      if (data?.status === 'rejected') {
+        throw new Error('Pagamento recusado. Verifique os dados e tente novamente.');
+      }
+
+      // approved or pending (PIX/boleto) — advance to success screen
+      onSuccess();
+    },
+    [orderId, onSuccess],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -180,30 +206,22 @@ function validarEmail(email: string): boolean {
 type ProcessPaymentResponse = {
   preference_id?: string;
   amount?: number;
+  order_id?: number;
   error?: string;
 };
 
-type Pacote = 'ingresso' | 'camiseta' | 'combo';
+type PackageApiItem = {
+  id: number;
+  name: string;
+  type: string;
+  price: number | string;
+};
 
-const PACOTES_CONFIG: Record<
-  Pacote,
-  { label: string; descricao: string; valor: number }
-> = {
-  ingresso: {
-    label: 'Somente Ingresso',
-    descricao: 'Acesso ao evento Adolefest 2026',
-    valor: 70,
-  },
-  camiseta: {
-    label: 'Somente Camiseta',
-    descricao: 'Camiseta oficial do Adolefest 2026',
-    valor: 45,
-  },
-  combo: {
-    label: 'Ingresso + Camiseta',
-    descricao: 'Ingresso do evento + camiseta oficial',
-    valor: 105,
-  },
+type PackageOption = {
+  id: number;
+  name: string;
+  type: string;
+  price: number;
 };
 
 const formatCurrency = (value: number): string =>
@@ -215,9 +233,13 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
   const [nome, setNome] = useState('');
   const [cpf, setCpf] = useState('');
   const [email, setEmail] = useState('');
-  const [pacote, setPacote] = useState<Pacote>('ingresso');
+  const [packages, setPackages] = useState<PackageOption[]>([]);
+  const [selectedPackage, setSelectedPackage] = useState<PackageOption | null>(null);
+  const [isLoadingPackages, setIsLoadingPackages] = useState(false);
+  const [packagesError, setPackagesError] = useState<string | null>(null);
   const [errors, setErrors] = useState<{ nome?: string; cpf?: string; email?: string }>({});
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
+  const [orderId, setOrderId] = useState<number | null>(null);
   const [amount, setAmount] = useState<number>(0);
   const [isCreatingPreference, setIsCreatingPreference] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -237,10 +259,72 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
     setPaymentError(`Erro no checkout: ${reason}`);
     setLoading(false);
   }, []);
+  const handlePaymentSuccess = useCallback(() => {
+    setStep('success');
+  }, []);
 
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setCpf(formatCpf(e.target.value));
   };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchPackages = async () => {
+      try {
+        setIsLoadingPackages(true);
+        setPackagesError(null);
+
+        const response = await fetch('/api/packages');
+        const rawData = (await response.json().catch(() => null)) as PackageApiItem[] | null;
+
+        if (!response.ok || !Array.isArray(rawData)) {
+          throw new Error('Nao foi possivel carregar os pacotes.');
+        }
+
+        const normalizedPackages = rawData
+          .map((item) => ({
+            id: item.id,
+            name: item.name,
+            type: item.type,
+            price: Number(item.price),
+          }))
+          .filter((item) => Number.isFinite(item.price) && item.price > 0);
+
+        if (!isMounted) return;
+
+        setPackages(normalizedPackages);
+        setSelectedPackage((current) => {
+          if (current) {
+            const updatedSelection = normalizedPackages.find((item) => item.type === current.type);
+            if (updatedSelection) return updatedSelection;
+          }
+
+          return normalizedPackages[0] ?? null;
+        });
+
+        if (normalizedPackages.length === 0) {
+          setPackagesError('Nenhum pacote disponivel no momento.');
+        }
+      } catch (error) {
+        if (!isMounted) return;
+        console.error('Erro ao buscar pacotes:', error);
+        setPackages([]);
+        setSelectedPackage(null);
+        setPackagesError('Nao foi possivel carregar os pacotes. Tente novamente em instantes.');
+      } finally {
+        if (isMounted) {
+          setIsLoadingPackages(false);
+        }
+      }
+    };
+
+    fetchPackages();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -257,6 +341,10 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
     }
     if (!validarEmail(trimmedEmail)) {
       newErrors.email = 'Email inválido';
+    }
+    if (!selectedPackage) {
+      setPaymentError('Selecione um pacote valido para continuar.');
+      return;
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -277,7 +365,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
           cpf: cpfDigits,
           email: trimmedEmail,
           id_evento: 1,
-          pacote,
+          pacote: selectedPackage.type,
         }),
       });
 
@@ -300,6 +388,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
 
       console.info('[MP] preference_id recebido:', data.preference_id, 'amount:', data.amount);
       setPreferenceId(data.preference_id);
+      setOrderId(data.order_id ?? null);
       setAmount(data.amount ?? 0);
       setBrickReady(false);
       setLoading(true);
@@ -320,14 +409,16 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
       setNome('');
       setCpf('');
       setEmail('');
-      setPacote('ingresso');
+      setSelectedPackage(packages[0] ?? null);
       setErrors({});
       setPaymentError(null);
       setIsCreatingPreference(false);
       setBrickReady(false);
       setLoading(false);
+      setPreferenceId(null);
+      setOrderId(null);
     }
-  }, [isOpen]);
+  }, [isOpen, packages]);
 
   useEffect(() => {
     if (step !== 'payment') return;
@@ -477,19 +568,34 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                     </label>
                     <select
                       id="pacote"
-                      value={pacote}
-                      onChange={(e) => setPacote(e.target.value as Pacote)}
+                      value={selectedPackage?.type ?? ''}
+                      onChange={(e) => {
+                        const nextPackage = packages.find((item) => item.type === e.target.value) ?? null;
+                        setSelectedPackage(nextPackage);
+                      }}
+                      disabled={isLoadingPackages || packages.length === 0}
                       className="w-full bg-[#0f0f0f] border border-white/15 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-600/50 transition-colors"
                     >
-                      <option value="ingresso">Somente Ingresso</option>
-                      <option value="camiseta">Somente Camiseta</option>
-                      <option value="combo">Ingresso + Camiseta</option>
+                      {isLoadingPackages && <option value="">Carregando pacotes...</option>}
+                      {!isLoadingPackages && packages.length === 0 && (
+                        <option value="">Nenhum pacote disponivel</option>
+                      )}
+                      {packages.map((item) => (
+                        <option key={item.id} value={item.type}>
+                          {item.name}
+                        </option>
+                      ))}
                     </select>
 
                     <div className="rounded-xl border border-amber-600/25 bg-amber-600/10 px-4 py-3">
                       <p className="text-amber-400 text-xs font-semibold uppercase tracking-wider">Valor Total</p>
-                      <p className="text-2xl font-bold text-white">{formatCurrency(PACOTES_CONFIG[pacote].valor)}</p>
-                      <p className="text-xs text-gray-300 mt-1">{PACOTES_CONFIG[pacote].descricao}</p>
+                      <p className="text-2xl font-bold text-white">
+                        {formatCurrency(selectedPackage?.price ?? 0)}
+                      </p>
+                      {selectedPackage && (
+                        <p className="text-xs text-gray-300 mt-1">{selectedPackage.name}</p>
+                      )}
+                      {packagesError && <p className="text-xs text-red-300 mt-1">{packagesError}</p>}
                     </div>
                   </div>
 
@@ -578,13 +684,15 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                     </div>
                   )}
                   {/* Brick isolado em React.memo — só re-renderiza se preferenceId mudar */}
-                  {typeof preferenceId === 'string' && preferenceId.trim() !== '' && (
+                  {typeof preferenceId === 'string' && preferenceId.trim() !== '' && typeof orderId === 'number' && (
                     <MercadoPagoSection
                       key={preferenceId}
                       preferenceId={preferenceId}
                       amount={amount}
+                      orderId={orderId}
                       onReady={handleBrickReady}
                       onError={handleBrickError}
+                      onSuccess={handlePaymentSuccess}
                     />
                   )}
                 </div>

@@ -191,7 +191,7 @@ export const createProcessPaymentController = (accessToken: string) => {
         },
       });
 
-      res.status(200).json({ preference_id: preference.id, amount: unitPrice });
+      res.status(200).json({ preference_id: preference.id, amount: unitPrice, order_id: transactionResult.orderId });
     } catch (error) {
       if (error instanceof SoldOutError) {
         res.status(400).json({ error: 'Esgotado' });
