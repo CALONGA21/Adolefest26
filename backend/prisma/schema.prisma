@@ -50,6 +50,7 @@ model Order {
 
   status          OrderStatus @default(PENDING)
   package_type    PackageType @default(ingresso)
+  shirt_size      String?     @db.VarChar(10)
   // Guarantees safe retries in payment flow without creating duplicate charges/orders.
   idempotency_key String      @unique
 

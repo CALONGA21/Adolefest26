@@ -6,6 +6,16 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 
 const cpfDigits = (value: string): string => value.replace(/\D/g, '');
+const shirtSizeSchema = z.enum(['PP', 'P', 'M', 'G', 'GG', 'XG']);
+const normalizePackageType = (value: string): 'ingresso' | 'camiseta' | 'combo' | null => {
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === 'ingresso') return 'ingresso';
+  if (normalized === 'camiseta' || normalized === 'camisa') return 'camiseta';
+  if (normalized === 'combo') return 'combo';
+
+  return null;
+};
 
 const isValidCpf = (value: string): boolean => {
   const cpf = cpfDigits(value);
@@ -35,7 +45,23 @@ const checkoutPayloadSchema = z.object({
   cpf: z.string().trim().refine(isValidCpf, { message: 'CPF invalido' }),
   nome: z.string().trim().min(3, 'Nome deve ter ao menos 3 caracteres'),
   email: z.string().trim().email('Email invalido'),
-  pacote: z.enum(['ingresso', 'camiseta', 'combo']),
+  pacote: z
+    .string()
+    .trim()
+    .transform((value) => normalizePackageType(value))
+    .refine((value) => value !== null, {
+      message: 'Pacote invalido. Use ingresso, camiseta/camisa ou combo',
+    })
+    .transform((value) => value as 'ingresso' | 'camiseta' | 'combo'),
+  tamanho_camisa: shirtSizeSchema.optional(),
+}).superRefine((payload, ctx) => {
+  if (payload.pacote === 'combo' && !payload.tamanho_camisa) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['tamanho_camisa'],
+      message: 'Tamanho da camisa e obrigatorio para o combo',
+    });
+  }
 });
 
 type CheckoutPayload = z.infer<typeof checkoutPayloadSchema>;
@@ -136,9 +162,16 @@ export const createProcessPaymentController = (accessToken: string) => {
           });
         }
 
-        const pacoteInfo = await tx.package.findUnique({ where: { type: payload.pacote } });
+        const pacoteInfo = await tx.package.findFirst({
+          where: {
+            type: {
+              equals: payload.pacote,
+              mode: 'insensitive',
+            },
+          },
+        });
         if (!pacoteInfo) {
-          throw new PackageNotFoundError('Pacote inválido ou não encontrado no banco');
+          throw new PackageNotFoundError('Pacote invalido ou nao encontrado no banco');
         }
 
         const order = await tx.order.create({
@@ -148,6 +181,7 @@ export const createProcessPaymentController = (accessToken: string) => {
             user_id: user.id,
             event_id: evento.id,
             package_type: payload.pacote,
+            shirt_size: payload.pacote === 'combo' ? payload.tamanho_camisa ?? null : null,
           },
         });
 
@@ -187,6 +221,7 @@ export const createProcessPaymentController = (accessToken: string) => {
             order_id: transactionResult.orderId,
             event_id: transactionResult.evento.id,
             pacote: payload.pacote,
+            ...(payload.tamanho_camisa ? { tamanho_camisa: payload.tamanho_camisa } : {}),
             checkout_description: transactionResult.pacoteInfo.name,
           },
         },

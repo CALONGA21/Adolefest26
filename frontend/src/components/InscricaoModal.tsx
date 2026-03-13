@@ -227,6 +227,23 @@ type PackageOption = {
   price: number;
 };
 
+const normalizePackageType = (value: string): 'ingresso' | 'camiseta' | 'combo' | null => {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'ingresso') return 'ingresso';
+  if (normalized === 'camiseta' || normalized === 'camisa') return 'camiseta';
+  if (normalized === 'combo') return 'combo';
+  return null;
+};
+
+const shirtSizes = ['PP', 'P', 'M', 'G', 'GG', 'XG'] as const;
+
+type FormErrors = {
+  nome?: string;
+  cpf?: string;
+  email?: string;
+  tamanhoCamisa?: string;
+};
+
 const formatCurrency = (value: number): string =>
   value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -236,11 +253,12 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
   const [nome, setNome] = useState('');
   const [cpf, setCpf] = useState('');
   const [email, setEmail] = useState('');
+  const [shirtSize, setShirtSize] = useState('');
   const [packages, setPackages] = useState<PackageOption[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<PackageOption | null>(null);
   const [isLoadingPackages, setIsLoadingPackages] = useState(false);
   const [packagesError, setPackagesError] = useState<string | null>(null);
-  const [errors, setErrors] = useState<{ nome?: string; cpf?: string; email?: string }>({});
+  const [errors, setErrors] = useState<FormErrors>({});
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<number | null>(null);
   const [amount, setAmount] = useState<number>(0);
@@ -249,6 +267,8 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
   const [brickReady, setBrickReady] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const publicKey = import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY;
+  const normalizedSelectedPackageType = selectedPackage ? normalizePackageType(selectedPackage.type) : null;
+  const packageRequiresShirtSize = normalizedSelectedPackageType === 'combo';
 
   const handleBrickReady = useCallback(() => {
     console.info('[MP] Brick ready');
@@ -299,7 +319,10 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
         setPackages(normalizedPackages);
         setSelectedPackage((current) => {
           if (current) {
-            const updatedSelection = normalizedPackages.find((item) => item.type === current.type);
+            const currentType = normalizePackageType(current.type);
+            const updatedSelection = normalizedPackages.find(
+              (item) => normalizePackageType(item.type) === currentType,
+            );
             if (updatedSelection) return updatedSelection;
           }
 
@@ -331,7 +354,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
 
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newErrors: { nome?: string; cpf?: string; email?: string } = {};
+    const newErrors: FormErrors = {};
     const trimmedName = nome.trim();
     const trimmedEmail = email.trim();
     const cpfDigits = cpf.replace(/\D/g, '');
@@ -348,6 +371,13 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
     if (!selectedPackage) {
       setPaymentError('Selecione um pacote valido para continuar.');
       return;
+    }
+    if (!normalizedSelectedPackageType) {
+      setPaymentError('Tipo de pacote invalido. Ajuste os tipos no banco para ingresso, camiseta/camisa ou combo.');
+      return;
+    }
+    if (packageRequiresShirtSize && !shirtSizes.includes(shirtSize as (typeof shirtSizes)[number])) {
+      newErrors.tamanhoCamisa = 'Selecione o tamanho da camisa';
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -367,7 +397,8 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
           nome: trimmedName,
           cpf: cpfDigits,
           email: trimmedEmail,
-          pacote: selectedPackage.type,
+          pacote: normalizedSelectedPackageType,
+          tamanho_camisa: packageRequiresShirtSize ? shirtSize : undefined,
         }),
       });
 
@@ -411,6 +442,7 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
       setNome('');
       setCpf('');
       setEmail('');
+      setShirtSize('');
       setSelectedPackage(packages[0] ?? null);
       setErrors({});
       setPaymentError(null);
@@ -574,6 +606,10 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                       onChange={(e) => {
                         const nextPackage = packages.find((item) => item.type === e.target.value) ?? null;
                         setSelectedPackage(nextPackage);
+                        if (normalizePackageType(nextPackage?.type ?? '') !== 'combo') {
+                          setShirtSize('');
+                          setErrors((current) => ({ ...current, tamanhoCamisa: undefined }));
+                        }
                       }}
                       disabled={isLoadingPackages || packages.length === 0}
                       className="w-full bg-[#0f0f0f] border border-white/15 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-600/50 transition-colors"
@@ -599,6 +635,33 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                       )}
                       {packagesError && <p className="text-xs text-red-300 mt-1">{packagesError}</p>}
                     </div>
+
+                    {packageRequiresShirtSize && (
+                      <div>
+                        <label htmlFor="shirtSize" className="block text-sm font-medium text-gray-200 mb-1.5">
+                          Tamanho da camisa
+                        </label>
+                        <select
+                          id="shirtSize"
+                          value={shirtSize}
+                          onChange={(e) => {
+                            setShirtSize(e.target.value);
+                            setErrors((current) => ({ ...current, tamanhoCamisa: undefined }));
+                          }}
+                          className="w-full bg-[#0f0f0f] border border-white/15 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-600/50 transition-colors"
+                        >
+                          <option value="">Selecione o tamanho</option>
+                          {shirtSizes.map((size) => (
+                            <option key={size} value={size}>
+                              {size}
+                            </option>
+                          ))}
+                        </select>
+                        {errors.tamanhoCamisa && (
+                          <p className="text-red-400 text-xs mt-1">{errors.tamanhoCamisa}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div>
