@@ -235,6 +235,9 @@ const normalizePackageType = (value: string): 'ingresso' | 'camiseta' | 'combo' 
   return null;
 };
 
+const requiresShirtSize = (packageType: 'ingresso' | 'camiseta' | 'combo'): boolean =>
+  packageType === 'combo' || packageType === 'camiseta';
+
 const shirtSizes = ['PP', 'P', 'M', 'G', 'GG', 'XG'] as const;
 
 type FormErrors = {
@@ -268,7 +271,9 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const publicKey = import.meta.env.VITE_MERCADO_PAGO_PUBLIC_KEY;
   const normalizedSelectedPackageType = selectedPackage ? normalizePackageType(selectedPackage.type) : null;
-  const packageRequiresShirtSize = normalizedSelectedPackageType === 'combo';
+  const packageRequiresShirtSize = normalizedSelectedPackageType
+    ? requiresShirtSize(normalizedSelectedPackageType)
+    : false;
 
   const handleBrickReady = useCallback(() => {
     console.info('[MP] Brick ready');
@@ -606,7 +611,8 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                       onChange={(e) => {
                         const nextPackage = packages.find((item) => item.type === e.target.value) ?? null;
                         setSelectedPackage(nextPackage);
-                        if (normalizePackageType(nextPackage?.type ?? '') !== 'combo') {
+                        const normalizedNextType = normalizePackageType(nextPackage?.type ?? '');
+                        if (!normalizedNextType || !requiresShirtSize(normalizedNextType)) {
                           setShirtSize('');
                           setErrors((current) => ({ ...current, tamanhoCamisa: undefined }));
                         }

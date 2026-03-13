@@ -17,6 +17,9 @@ const normalizePackageType = (value: string): 'ingresso' | 'camiseta' | 'combo' 
   return null;
 };
 
+const requiresShirtSize = (packageType: 'ingresso' | 'camiseta' | 'combo'): boolean =>
+  packageType === 'combo' || packageType === 'camiseta';
+
 const isValidCpf = (value: string): boolean => {
   const cpf = cpfDigits(value);
 
@@ -55,11 +58,11 @@ const checkoutPayloadSchema = z.object({
     .transform((value) => value as 'ingresso' | 'camiseta' | 'combo'),
   tamanho_camisa: shirtSizeSchema.optional(),
 }).superRefine((payload, ctx) => {
-  if (payload.pacote === 'combo' && !payload.tamanho_camisa) {
+  if (requiresShirtSize(payload.pacote) && !payload.tamanho_camisa) {
     ctx.addIssue({
       code: 'custom',
       path: ['tamanho_camisa'],
-      message: 'Tamanho da camisa e obrigatorio para o combo',
+      message: 'Tamanho da camisa e obrigatorio para camiseta e combo',
     });
   }
 });
@@ -181,7 +184,7 @@ export const createProcessPaymentController = (accessToken: string) => {
             user_id: user.id,
             event_id: evento.id,
             package_type: payload.pacote,
-            shirt_size: payload.pacote === 'combo' ? payload.tamanho_camisa ?? null : null,
+            shirt_size: requiresShirtSize(payload.pacote) ? payload.tamanho_camisa ?? null : null,
           },
         });
 
