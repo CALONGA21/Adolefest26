@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: adolefest-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: adolefest
+      POSTGRES_USER: adolefest
+      POSTGRES_PASSWORD: change-this-db-password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adolefest -d adolefest"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: adolefest-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 3001
+      DATABASE_URL: postgresql://adolefest:change-this-db-password@db:5432/adolefest?schema=public
+      FRONTEND_ORIGIN: http://YOUR_EC2_PUBLIC_IP
+      APP_URL: http://YOUR_EC2_PUBLIC_IP
+      MERCADO_PAGO_ACCESS_TOKEN: change-this-mercado-pago-access-token
+      MERCADO_PAGO_WEBHOOK_SECRET: change-this-webhook-secret
+    expose:
+      - "3001"
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && node --import tsx src/server.ts"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_MERCADO_PAGO_PUBLIC_KEY: change-this-mercado-pago-public-key
+        VITE_API_URL: ""
+        VITE_CHECKIN_PASSWORD: change-this-checkin-password
+    container_name: adolefest-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:
