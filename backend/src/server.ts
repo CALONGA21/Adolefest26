@@ -9,6 +9,8 @@ import { createProcessPaymentController } from './controllers/paymentController'
 import { createConfirmPaymentController } from './controllers/confirmPaymentController';
 import { createMercadoPagoWebhookController } from './controllers/webhookController';
 import { listPackagesController } from './controllers/packagesController';
+import { checkInController } from './controllers/checkInController';
+import { attendeesController } from './controllers/attendeesController';
 
 dotenv.config({ path: path.resolve(process.cwd(), '../.env.local') });
 
@@ -59,6 +61,8 @@ const checkoutLimiter = rateLimit({
 app.post('/api/process_payment', checkoutLimiter, createProcessPaymentController(env.MERCADO_PAGO_ACCESS_TOKEN));
 app.post('/api/confirm_payment', checkoutLimiter, createConfirmPaymentController(env.MERCADO_PAGO_ACCESS_TOKEN));
 app.get('/api/packages', listPackagesController);
+app.post('/api/checkin', checkInController);
+app.get('/api/attendees', attendeesController);
 app.post(
   '/api/webhook/mercadopago',
   createMercadoPagoWebhookController(env.MERCADO_PAGO_ACCESS_TOKEN, env.MERCADO_PAGO_WEBHOOK_SECRET),

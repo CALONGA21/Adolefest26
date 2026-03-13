@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 
 const apiBaseUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim().replace(/\/$/, '') ?? '';
 const apiUrl = (path: string): string => (apiBaseUrl ? `${apiBaseUrl}${path}` : path);
@@ -778,9 +779,26 @@ export default function InscricaoModal({ isOpen, onClose }: Props) {
                     Parabéns, <span className="text-white font-semibold">{nome.trim().split(/\s+/)[0]}</span>!
                     Sua inscrição no 4º Encontrão foi confirmada com sucesso.
                   </p>
-                  <p className="text-gray-500 text-sm mb-8">
+                  <p className="text-gray-500 text-sm mb-6">
                     Nos vemos dia <strong className="text-white">16 de Maio de 2026</strong> às 19h!
                   </p>
+
+                  {orderId !== null && (
+                    <div className="flex flex-col items-center gap-3 mb-8">
+                      <div className="p-4 bg-white rounded-2xl shadow-xl">
+                        <QRCodeCanvas
+                          value={String(orderId)}
+                          size={220}
+                          marginSize={2}
+                          level="H"
+                        />
+                      </div>
+                      <p className="text-amber-400 font-semibold text-sm max-w-xs">
+                        Tire um print! Apresente este QR Code na entrada do evento.
+                      </p>
+                    </div>
+                  )}
+
                   <button
                     onClick={onClose}
                     className="px-8 py-3 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl uppercase tracking-widest text-sm transition-colors"

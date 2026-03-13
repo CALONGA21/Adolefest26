@@ -207,16 +207,28 @@ export const createMercadoPagoWebhookController = (accessToken: string, webhookS
           return;
         }
 
+        // Idempotency guard: only transition PENDING → APPROVED.
+        // Adding status: 'PENDING' to the WHERE clause ensures that:
+        //   1. Duplicate webhooks for an already-APPROVED order are no-ops
+        //      (no unnecessary DB write, no updated_at overwrite).
+        //   2. A delayed webhook can never re-approve a CANCELLED order
+        //      (e.g. after a refund), which would otherwise be a financial integrity bug.
         const updated = await prisma.order.updateMany({
-          where: { id: orderId },
+          where: { id: orderId, status: 'PENDING' },
           data: { status: 'APPROVED' },
         });
 
         console.log('[MP WEBHOOK] Pedido atualizado para APPROVED:', { orderId, updatedCount: updated.count });
 
         if (updated.count === 0) {
-          res.status(404).json({ error: 'Pedido nao encontrado para aprovacao' });
-          return;
+          // Zero rows updated: either already processed (idempotent) or order not found.
+          const order = await prisma.order.findUnique({ where: { id: orderId } });
+          if (!order) {
+            res.status(404).json({ error: 'Pedido nao encontrado para aprovacao' });
+            return;
+          }
+          // Order exists but was not PENDING — idempotent webhook, already processed.
+          console.log('[MP WEBHOOK] Pedido ja processado (idempotente):', { orderId, status: order.status });
         }
       }
 
